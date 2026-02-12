@@ -1,1 +1,234 @@
+%% PINN Caso A: Solución Suave (Relajación)
+% Ecuación: y' = 2 - y  ;  y(0) = 0.5
+clear; clc; close all;
+%% 1. Configuración de la Red
+% Arquitectura ligera: 1 capas ocultas de 12 neuronas
+numNeurons = 12;
+layers = [
+   featureInputLayer(1, 'Name', 'input')
+  
+   fullyConnectedLayer(numNeurons, 'Name', 'fc2')
+   tanhLayer('Name', 'act2')
+   fullyConnectedLayer(1, 'Name', 'output')
+];
+pinn = dlnetwork(layers);
+%% 2. Parámetros y Datos
+numEpochs = 1000;      
+learningRate = 0.01;
+gifFilename = 'caso_suave.gif';
+% --- Dominio (Puntos de Colocación) ---
+% Formato CB (Channel, Batch) para dlarray
+x_dom = linspace(0, 2, 100);
+x_physics = dlarray(x_dom, 'CB');
+% --- Condición de Borde (y(0) = 0.5) ---
+x_bc = dlarray(0, 'CB');
+y_bc_target = 0.5;
+% --- Solución Analítica (RK4) para Comparar ---
+f_ode = @(x,y) 2 - y;
+y_rk = runge_kutta_solver(f_ode, 0, 2, 0.5, 100); % Función auxiliar abajo
+%% 3. Inicialización de Gráficos
+fig = figure('Color', 'w', 'Position', [100 100 1000 500]);
+% Subplot Pérdida
+subplot(1,2,1);
+hLoss = animatedline('Color', '#0072BD', 'LineWidth', 1.5);
+title('Pérdida (Loss)'); xlabel('Época'); grid on; set(gca, 'YScale', 'log');
+% Subplot Solución
+subplot(1,2,2);
+plot(x_dom, y_rk, 'b--', 'LineWidth', 1.5, 'DisplayName', 'Solución Numérica (RK4)'); hold on;
+hPinn = plot(NaN, NaN, 'r-', 'LineWidth', 2.5, 'DisplayName', 'Predicción PINN');
+title('Caso Suave: y'' = 2 - y');
+xlabel('x'); ylabel('y'); legend('Location', 'best'); grid on;
+ylim([0 2.5]); xlim([0 2]);
+% Optimizador Adam
+averageGrad = []; averageSqGrad = [];
+%% 4. Bucle de Entrenamiento
+fprintf('Entrenando PINN (Caso Suave)...\n');
+startTick = tic;
+for epoch = 1:numEpochs
+   % Evaluar gradientes y pérdida
+   [loss, grads] = dlfeval(@modelLoss, pinn, x_physics, x_bc, y_bc_target);
+  
+   % Actualizar pesos (Adam)
+   [pinn, averageGrad, averageSqGrad] = adamupdate(pinn, grads, ...
+       averageGrad, averageSqGrad, epoch, learningRate);
+  
+   % Visualización y GIF
+   if mod(epoch, 50) == 0 || epoch == 1
+       currentLoss = extractdata(loss);
+       y_pred = predict(pinn, x_physics);
+      
+       addpoints(hLoss, epoch, currentLoss);
+       set(hPinn, 'XData', x_dom, 'YData', extractdata(y_pred));
+       title(subplot(1,2,2), sprintf('Época %d | Loss: %.2e', epoch, currentLoss));
+       drawnow;
+      
+       % Guardar GIF
+       frame = getframe(fig);
+       im = frame2im(frame);
+       [imind, cm] = rgb2ind(im, 256);
+       if epoch == 1
+           imwrite(imind, cm, gifFilename, 'gif', 'Loopcount', inf, 'DelayTime', 0.1);
+       else
+           imwrite(imind, cm, gifFilename, 'gif', 'WriteMode', 'append', 'DelayTime', 0.1);
+       end
+   end
+end
+toc(startTick);
+%% 5. Función de Pérdida
+function [loss, grads] = modelLoss(net, x, x_bc, y_target)
+   % --- 1. Residuo de la EDO ---
+   y = forward(net, x);
+  
+   % Derivada dy/dx (Automática)
+   dy = dlgradient(sum(y, 'all'), x);
+  
+   % Ecuación: y' - (2 - y) = 0
+   res_ode = dy - (2 - y);
+   loss_physics = mean(res_ode.^2);
+  
+   % --- 2. Condición de Borde ---
+   y_0 = forward(net, x_bc);
+   loss_bc = (y_0 - y_target)^2;
+  
+   % Pérdida Total
+   loss = loss_physics + loss_bc;
+  
+   grads = dlgradient(loss, net.Learnables);
+end
+%% Función Auxiliar RK4 (Solo para pintar la linea azul)
+function y = runge_kutta_solver(f, x0, xf, y0, n)
+   h = (xf-x0)/(n-1);
+   x = linspace(x0, xf, n);
+   y = zeros(1,n); y(1) = y0;
+   for i=1:n-1
+       k1 = h*f(x(i), y(i));
+       k2 = h*f(x(i)+0.5*h, y(i)+0.5*k1);
+       k3 = h*f(x(i)+0.5*h, y(i)+0.5*k2);
+       k4 = h*f(x(i)+h, y(i)+k3);
+       y(i+1) = y(i) + (1/6)*(k1+2*k2+2*k3+k4);
+   end
+end
+
+
+Ahora hacemos una red profunda de 2 capas con 6 neuronas cada una
+%% PINN Caso A: Solución Suave (Relajación)
+% Ecuación: y' = 2 - y  ;  y(0) = 0.5
+clear; clc; close all;
+%% 1. Configuración de la Red
+% Arquitectura ligera: 2 capas ocultas de 6 neuronas
+numNeurons = 6;
+layers = [
+   featureInputLayer(1, 'Name', 'input')
+   fullyConnectedLayer(numNeurons, 'Name', 'fc2')
+   tanhLayer('Name', 'act2')
+   fullyConnectedLayer(numNeurons, 'Name', 'fc2')
+   tanhLayer('Name', 'act2')
+   fullyConnectedLayer(1, 'Name', 'output')
+];
+pinn = dlnetwork(layers);
+%% 2. Parámetros y Datos
+numEpochs = 1000;      
+learningRate = 0.01;
+gifFilename = 'caso_suave2.gif';
+% --- Dominio (Puntos de Colocación) ---
+% Formato CB (Channel, Batch) para dlarray
+x_dom = linspace(0, 2, 100);
+x_physics = dlarray(x_dom, 'CB');
+% --- Condición de Borde (y(0) = 0.5) ---
+x_bc = dlarray(0, 'CB');
+y_bc_target = 0.5;
+% --- Solución Analítica (RK4) para Comparar ---
+f_ode = @(x,y) 2 - y;
+y_rk = runge_kutta_solver(f_ode, 0, 2, 0.5, 100); % Función auxiliar abajo
+%% 3. Inicialización de Gráficos
+fig = figure('Color', 'w', 'Position', [100 100 1000 500]);
+% Subplot Pérdida
+subplot(1,2,1);
+hLoss = animatedline('Color', '#0072BD', 'LineWidth', 1.5);
+title('Pérdida (Loss)'); xlabel('Época'); grid on; set(gca, 'YScale', 'log');
+% Subplot Solución
+subplot(1,2,2);
+plot(x_dom, y_rk, 'b--', 'LineWidth', 1.5, 'DisplayName', 'Solución Numérica (RK4)'); hold on;
+hPinn = plot(NaN, NaN, 'r-', 'LineWidth', 2.5, 'DisplayName', 'Predicción PINN');
+title('Caso Suave: y'' = 2 - y');
+xlabel('x'); ylabel('y'); legend('Location', 'best'); grid on;
+ylim([0 2.5]); xlim([0 2]);
+% Optimizador Adam
+averageGrad = []; averageSqGrad = [];
+%% 4. Bucle de Entrenamiento
+fprintf('Entrenando PINN (Caso Suave)...\n');
+startTick = tic;
+for epoch = 1:numEpochs
+   % Evaluar gradientes y pérdida
+   [loss, grads] = dlfeval(@modelLoss, pinn, x_physics, x_bc, y_bc_target);
+  
+   % Actualizar pesos (Adam)
+   [pinn, averageGrad, averageSqGrad] = adamupdate(pinn, grads, ...
+       averageGrad, averageSqGrad, epoch, learningRate);
+  
+   % Visualización y GIF
+   if mod(epoch, 50) == 0 || epoch == 1
+       currentLoss = extractdata(loss);
+       y_pred = predict(pinn, x_physics);
+      
+       addpoints(hLoss, epoch, currentLoss);
+       set(hPinn, 'XData', x_dom, 'YData', extractdata(y_pred));
+       title(subplot(1,2,2), sprintf('Época %d | Loss: %.2e', epoch, currentLoss));
+       drawnow;
+      
+       % Guardar GIF
+       frame = getframe(fig);
+       im = frame2im(frame);
+       [imind, cm] = rgb2ind(im, 256);
+       if epoch == 1
+           imwrite(imind, cm, gifFilename, 'gif', 'Loopcount', inf, 'DelayTime', 0.1);
+       else
+           imwrite(imind, cm, gifFilename, 'gif', 'WriteMode', 'append', 'DelayTime', 0.1);
+       end
+   end
+end
+toc(startTick);
+%% 5. Función de Pérdida
+function [loss, grads] = modelLoss(net, x, x_bc, y_target)
+   % --- 1. Residuo de la EDO ---
+   y = forward(net, x);
+  
+   % Derivada dy/dx (Automática)
+   dy = dlgradient(sum(y, 'all'), x);
+  
+   % Ecuación: y' - (2 - y) = 0
+   res_ode = dy - (2 - y);
+   loss_physics = mean(res_ode.^2);
+  
+   % --- 2. Condición de Borde ---
+   y_0 = forward(net, x_bc);
+   loss_bc = (y_0 - y_target)^2;
+  
+   % Pérdida Total
+   loss = loss_physics + loss_bc;
+  
+   grads = dlgradient(loss, net.Learnables);
+end
+%% Función Auxiliar RK4 (Solo para pintar la linea azul)
+function y = runge_kutta_solver(f, x0, xf, y0, n)
+   h = (xf-x0)/(n-1);
+   x = linspace(x0, xf, n);
+   y = zeros(1,n); y(1) = y0;
+   for i=1:n-1
+       k1 = h*f(x(i), y(i));
+       k2 = h*f(x(i)+0.5*h, y(i)+0.5*k1);
+       k3 = h*f(x(i)+0.5*h, y(i)+0.5*k2);
+       k4 = h*f(x(i)+h, y(i)+k3);
+       y(i+1) = y(i) + (1/6)*(k1+2*k2+2*k3+k4);
+   end
+end
+
+
+
+
+
+
+
+
+
 
